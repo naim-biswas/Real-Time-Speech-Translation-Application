@@ -30,7 +30,6 @@ pandas==2.2.2
 pillow==10.4.0
 protobuf==5.27.2
 pyarrow==17.0.0
-PyAudio==0.2.14
 pydeck==0.9.1
 pygame==2.6.0
 Pygments==2.18.0
