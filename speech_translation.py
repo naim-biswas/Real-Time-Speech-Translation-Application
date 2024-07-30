@@ -1,14 +1,35 @@
 import os
+import time
 import pygame
 from gtts import gTTS
 import streamlit as st
 import speech_recognition as sr
 from googletrans import LANGUAGES, Translator
-import time
+from streamlit_navigation_bar import st_navbar
+
+# Add a navigation bar to the app
+
+styles = {
+    "nav": {
+        "background-color": "#655194",
+        "display": "flex",
+        "justify-content": "center",  # Center horizontally
+        "align-items": "center",  # Center vertically
+        "height": "60px",
+        "width": "100%",  # Ensure the nav bar spans the entire width of the page
+        "text-align": "center"  # Center text within the nav bar
+    },
+    "active": {
+        "color": "white",
+        "font-weight": "Bold",
+        "font-size": "20px",
+    }
+}
+
+page = st_navbar([" A different language is a different vision of life !!!!!!!"], styles=styles)
 
 # Global variable to control the translation loop
 isTranslateOn = False
-captured_audio = None
 
 # Initialize the translator and sound mixer
 translator = Translator()
@@ -36,44 +57,6 @@ with col1:
         pause_threshold = st.slider("Pause Threshold", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
         phrase_time_limit = st.number_input("Phrase Time Limit (seconds)", min_value=1, max_value=60, value=10, step=1)
 
-# Dropdown menus for language selection
-capitalized_languages = {code: name.capitalize() for code, name in LANGUAGES.items()}
-with col2:
-    with st.expander("**Select Language**", expanded=True):
-        from_language_name = st.selectbox("Select Source Language:", list(capitalized_languages.values()))
-        to_language_name = st.selectbox("Select Target Language:", list(capitalized_languages.values()))
-
-        # Buttons to start and stop the translation process
-        st.markdown("""
-            <style>
-            .button-container {
-                display: flex;
-                justify-content: space-between;
-            }
-            .stButton button {
-                background-color: #655194; /* Button color */
-                color: white;
-                padding: 10px 21px;
-                text-decoration: none;
-                font-size: 16px;
-                margin: 4px;
-                cursor: pointer;
-                border-radius: 4px;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-
-        # Container for buttons
-        st.markdown('<div class="button-container">', unsafe_allow_html=True)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            start_button = st.button("Start")
-        with col2:
-            translate_button = st.button("Translate")
-        with col3:
-            stop_button = st.button("Stop")
-        st.markdown('</div>', unsafe_allow_html=True)
-
 
 def get_language_code(language_name):
     """Get the language code from the language name."""
@@ -92,96 +75,154 @@ def text_to_speech(text, language_code):
     tts.save("temp_audio.mp3")
     audio = pygame.mixer.Sound("temp_audio.mp3")
     audio.play()
-    while pygame.mixer.get_busy():
-        continue
     os.remove("temp_audio.mp3")  # Remove the temporary audio file
 
 
-def listen_and_capture():
-    """Listen to audio and capture it."""
-    global captured_audio
+def listen_and_translate(from_language, to_language, status_placeholder, progress_bar, message_placeholder):
+    """Listen to audio, translate it, and play the translation."""
+
     rec = sr.Recognizer()
-    status_placeholder = st.empty()  # Placeholder for status updates
 
     with sr.Microphone() as source:
         with st.spinner("Listening..."):
             rec.pause_threshold = pause_threshold
-            captured_audio = rec.listen(source, phrase_time_limit=phrase_time_limit)
+            audio = rec.listen(source, phrase_time_limit=phrase_time_limit)
     try:
         status_placeholder.text("Processing...")
-        progress_bar = st.progress(0)
+        progress_bar.progress(0)
 
-        spoken_text = rec.recognize_google(captured_audio, language=from_language)
+        spoken_text = rec.recognize_google(audio, language=from_language)
         progress_bar.progress(50)  # Update progress bar to 50%
 
-        status_placeholder.text("Captured successfully!")
+        status_placeholder.text("Translating...")
+        translated_text = translate_text(spoken_text, from_language, to_language)
         progress_bar.progress(100)  # Update progress bar to 100%
 
+        text_to_speech(translated_text, to_language)
         status_placeholder.empty()
         progress_bar.empty()  # Clear the status placeholder after completion
 
-        return spoken_text
+        # Display the translated text as a success message
+        message_placeholder.success(f"Translated Text: {translated_text}")
+        time.sleep(3)  # Wait for 3 seconds to show the message
 
     except sr.UnknownValueError:
-        status_placeholder.markdown(
-            "<span style='color:red'>Sorry, I could not understand the audio. Please speak clearly and loudly.</span>",
-            unsafe_allow_html=True)
+        message_placeholder.error("Sorry, I could not understand the audio. Please speak clearly and loudly.")
         progress_bar.empty()
-        time.sleep(2)  # Wait for some time before resuming listening
-        status_placeholder.empty()  # Clear the error message before listening again
-        return None
+        time.sleep(3)
     except sr.RequestError as e:
-        status_placeholder.markdown(f"<span style='color:red'>Error with the speech recognition service: {e}</span>",
-                                    unsafe_allow_html=True)
-        progress_bar.empty()
-        time.sleep(2)  # Wait for some time before resuming listening
-        status_placeholder.empty()  # Clear the error message before listening again
-        return None
+        message_placeholder.error(f"Error with the speech recognition service: {e}")
+        time.sleep(3)
     except Exception as e:
-        status_placeholder.markdown(f"<span style='color:red'>Error during processing or translation: {e}</span>",
-                                    unsafe_allow_html=True)
-        progress_bar.empty()
-        time.sleep(2)  # Wait for some time before resuming listening
-        status_placeholder.empty()  # Clear the error message before listening again
-        return None
+        message_placeholder.error(f"Error during processing or translation: {e}")
+        time.sleep(3)
+    finally:
+        message_placeholder.empty()  # Clear the message after displaying it
 
+
+# Dropdown menus for language selection
+capitalized_languages = {code: name.capitalize() for code, name in LANGUAGES.items()}
+with col2:
+    with st.expander("**Select Language**", expanded=True):
+        from_language_name = st.selectbox("Select Source Language:", list(capitalized_languages.values()))
+        to_language_name = st.selectbox("Select Target Language:", list(capitalized_languages.values()))
+
+        # Buttons to start and stop the translation process
+        st.markdown("""
+            <style>
+            .button-container {
+                display: flex;
+                justify-content: space-between;
+            }
+            .stButton button {
+                background-color: #655194; /* Green */
+                color: white;
+                padding: 10px 21px;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 16px;
+                margin: 4px 70px;
+                cursor: pointer;
+                border-radius: 4px;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            start_button = st.button("Start")
+        with col2:
+            stop_button = st.button("Stop")
 
 # Convert language names to codes
 from_language = get_language_code(from_language_name)
 to_language = get_language_code(to_language_name)
 
-# Placeholder for displaying the translated text
-translated_text_placeholder = st.empty()
+# Create placeholders for status and messages
+status_placeholder = st.empty()
+progress_bar = st.empty()
+message_placeholder = st.empty()
 
 # Start translation process when "Start" button is clicked
 if start_button:
     if not isTranslateOn:
         isTranslateOn = True
         while isTranslateOn:
-            listen_and_capture()
-            time.sleep(2)  # Wait for some time before resuming listening
-
-# Translate when "Translate" button is clicked
-if translate_button:
-    isTranslateOn = False
-    if captured_audio:
-        rec = sr.Recognizer()
-        try:
-
-            spoken_text = rec.recognize_google(captured_audio, language=from_language)
-            translated_text = translate_text(spoken_text, from_language, to_language)
-            text_to_speech(translated_text, to_language)
-            translated_text_placeholder.markdown(f"<h3>Translated Text:</h3><p>{translated_text}</p>",
-                                                 unsafe_allow_html=True)
-        except Exception as e:
-            translated_text_placeholder.markdown(
-                f"<span style='color:red'>Error during processing or translation: {e}</span>", unsafe_allow_html=True)
-    time.sleep(2)  # Wait for some time before resuming listening
-    isTranslateOn = True
-    while isTranslateOn:
-        listen_and_capture()
-        time.sleep(2)
+            # Clear messages before starting the listening process
+            status_placeholder.empty()
+            progress_bar.empty()
+            listen_and_translate(from_language, to_language, status_placeholder, progress_bar, message_placeholder)
 
 # Stop translation process when "Stop" button is clicked
 if stop_button:
     isTranslateOn = False
+
+# Add footer
+st.markdown(
+    """
+    <style>
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 90px; /* Fixed height for the footer */
+        background-color: #655194;
+        color: white;
+        text-align: center;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+    }
+    .footer a {
+        color: white;
+        margin: 0 15px;
+        text-decoration: none;
+    }
+    .footer i {
+        margin-right: 8px;
+    }
+    </style>
+    <div class="footer">
+        <p>© 2024 Real-time Speech Translation Application. All rights reserved.</p>
+        <p>
+            <a href="https://www.facebook.com" target="_blank">
+                <i class="fa fa-facebook"></i> Facebook
+            </a>
+            <a href="https://www.instagram.com" target="_blank">
+                <i class="fa fa-instagram"></i> Instagram
+            </a>
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# Include FontAwesome for icons
+st.markdown(
+    """
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    """,
+    unsafe_allow_html=True
+)
