@@ -8,7 +8,6 @@ from googletrans import LANGUAGES, Translator
 from streamlit_navigation_bar import st_navbar
 
 # Add a navigation bar to the app
-
 styles = {
     "nav": {
         "background-color": "#655194",
@@ -69,18 +68,14 @@ def translate_text(text, from_language, to_language):
     return translation.text
 
 
-def text_to_speech(text, language_code):
-    """Convert text to speech and play it."""
+def text_to_speech(text, language_code, audio_filename):
+    """Convert text to speech and save it as a file."""
     tts = gTTS(text=text, lang=language_code, slow=False)
-    tts.save("temp_audio.mp3")
-    audio = pygame.mixer.Sound("temp_audio.mp3")
-    audio.play()
-    os.remove("temp_audio.mp3")  # Remove the temporary audio file
+    tts.save(audio_filename)  # Save the audio file with a given filename
 
 
 def listen_and_translate(from_language, to_language, status_placeholder, progress_bar, message_placeholder):
-    """Listen to audio, translate it, and play the translation."""
-
+    """Listen to audio, translate it, and save the translation."""
     rec = sr.Recognizer()
 
     with sr.Microphone() as source:
@@ -98,12 +93,28 @@ def listen_and_translate(from_language, to_language, status_placeholder, progres
         translated_text = translate_text(spoken_text, from_language, to_language)
         progress_bar.progress(100)  # Update progress bar to 100%
 
-        text_to_speech(translated_text, to_language)
+        # Create a unique filename for the audio file using a timestamp
+        audio_filename = f"audio_{int(time.time())}.mp3"
+        text_to_speech(translated_text, to_language, audio_filename)
+
         status_placeholder.empty()
         progress_bar.empty()  # Clear the status placeholder after completion
 
         # Display the translated text as a success message
         message_placeholder.success(f"Translated Text: {translated_text}")
+
+        # Store the result in session state for the current session
+        if "translation_history" not in st.session_state:
+            st.session_state.translation_history = []
+
+        # Append the translation details to session history
+        st.session_state.translation_history.append({
+            "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "spoken_text": spoken_text,
+            "translated_text": translated_text,
+            "audio_file": audio_filename
+        })
+
         time.sleep(3)  # Wait for 3 seconds to show the message
 
     except sr.UnknownValueError:
@@ -119,6 +130,10 @@ def listen_and_translate(from_language, to_language, status_placeholder, progres
     finally:
         message_placeholder.empty()  # Clear the message after displaying it
 
+
+# Initialize session state for translation history
+if "translation_history" not in st.session_state:
+    st.session_state.translation_history = []
 
 # Dropdown menus for language selection
 capitalized_languages = {code: name.capitalize() for code, name in LANGUAGES.items()}
@@ -177,6 +192,24 @@ if start_button:
 if stop_button:
     isTranslateOn = False
 
+# User History Section
+with st.expander("**User History**", expanded=True):  # Always expanded by default
+    if st.session_state.translation_history:
+        for entry in st.session_state.translation_history:
+            with st.container():
+                st.write(f"**Time:** {entry['time']}")
+                st.write(f"**Original Text:** {entry['spoken_text']}")
+                st.write(f"**Translated Text:** {entry['translated_text']}")
+
+                # Audio playback button for each entry
+                if st.button(f"Play Audio - {entry['time']}", key=f"play_{entry['time']}"):
+                    audio = pygame.mixer.Sound(entry["audio_file"])
+                    audio.play()
+
+                st.markdown("---")  # Separator for history entries
+    else:
+        st.write("No translations yet. Your history will appear here.")
+
 # Add footer
 st.markdown(
     """
@@ -226,3 +259,12 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+# Clean up audio files on exit or when session ends
+if st.button("Clear History"):
+    if "translation_history" in st.session_state:
+        for entry in st.session_state.translation_history:
+            if os.path.exists(entry["audio_file"]):
+                os.remove(entry["audio_file"])
+        st.session_state.translation_history.clear()  # Clear the session history
+
